@@ -1,6 +1,6 @@
 import express from "express";
-import puppeteer from "puppeteer";
 import cors from "cors";
+import chromium from "chrome-aws-lambda";  // cloud-friendly Puppeteer
 
 const app = express();
 app.use(cors());
@@ -15,14 +15,16 @@ const priceSelectors = {
 };
 
 const priceCache = {};
-const CACHE_TIME = 10 * 60 * 1000;
+const CACHE_TIME = 10 * 60 * 1000; // 10 minuta
 
 let browserPromise = null;
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    browserPromise = await chromium.puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
     });
   }
   return browserPromise;
@@ -38,6 +40,7 @@ app.get("/api/price", async (req, res) => {
   const cacheKey = `${site}|${url}`;
   const now = Date.now();
 
+  // cache
   if (priceCache[cacheKey] && (now - priceCache[cacheKey].time < CACHE_TIME)) {
     return res.json({ price: priceCache[cacheKey].price });
   }
@@ -50,17 +53,17 @@ app.get("/api/price", async (req, res) => {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
     );
 
-    await page.goto(url, { waitUntil: 'networkidle2' });
+    // Cloud-friendly timeout
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
     let price = null;
     try {
-      // Čekamo da element sa cenom ima tekst (dinamički JS)
       await page.waitForFunction(
         (sel) => {
           const el = document.querySelector(sel);
           return el && el.innerText.trim().length > 0;
         },
-        { timeout: 15000 }, // max 15 sekundi
+        { timeout: 20000 },
         selector
       );
 
@@ -80,7 +83,8 @@ app.get("/api/price", async (req, res) => {
   }
 });
 
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
 
