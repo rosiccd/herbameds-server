@@ -24,7 +24,16 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--single-process",
+        "--disable-gpu"
+      ]
     });
     console.log("Chromium launched successfully");
   }
@@ -98,6 +107,3 @@ app.get("/", (req, res) => {
 // Start servera
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-
-
