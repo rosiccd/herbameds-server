@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 
 // API key za ScrapingBee
-const SCRAPINGBEE_KEY = process.env.SCRAPINGBEE_KEY || "YOUR_KEY_HERE";
+const SCRAPINGBEE_KEY = process.env.SCRAPINGBEE_KEY || "9IAJJ5OSSL12SZAI3NB4CIGBUH1B20SPWNYORIXJV3YQYXQ316OYWDITBWTEAORQTLRG8PF4CN2CRL49";
 
 // Selektori za cene
 const priceSelectors = {
