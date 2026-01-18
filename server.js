@@ -1,69 +1,60 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const NodeCache = require("node-cache");
-const { chromium } = require("playwright");
+import express from "express"
+import cors from "cors"
+import puppeteer from "puppeteer-core"
 
-const app = express();
-app.use(cors());
+const app = express()
+app.use(cors())
 
-const PORT = process.env.PORT || 5000;
-const CACHE_TTL = process.env.CACHE_TTL_SECONDS ? parseInt(process.env.CACHE_TTL_SECONDS) : 3600;
-
-const cache = new NodeCache({ stdTTL: CACHE_TTL, checkperiod: 120 });
-
-// Mapa selektora po apotekama
 const priceSelectors = {
   jankovic: ".product-price",
   drmax: ".price-box .price-final_price",
-  benu: "span[data-mailkit-product-price]",
-  galenpharm: ".product-price-new",
+  benu: ".buy-modal h3",
   dm: '[data-dmid="price-localized"]',
+  galenpharm: ".product-price-new",
   lilly: ".price"
-};
+}
 
-// Funkcija koja dohvaća cenu sa bilo koje apoteke
-const fetchPrice = async (site, url) => {
-  const cacheKey = `${site}-${url}`;
-  const cachedPrice = cache.get(cacheKey);
-  if (cachedPrice) return cachedPrice;
+let browser
 
-  let browser;
-  try {
-    const selector = priceSelectors[site];
-    if (!selector) throw new Error("Nepoznat site");
-
-    browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-
-    // User-Agent kao pravi browser
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
-    );
-
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-
-    const price = await page.$eval(selector, el => el.textContent.trim());
-
-    if (price) cache.set(cacheKey, price); // Spremi u cache
-    return price;
-  } catch (err) {
-    console.error(`${site} fetch error:`, err.message);
-    return null;
-  } finally {
-    if (browser) await browser.close();
+async function getBrowser() {
+  if (!browser) {
+    browser = await puppeteer.launch({
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu"
+      ]
+    })
   }
-};
+  return browser
+}
 
-// API endpoint
 app.get("/api/price", async (req, res) => {
-  const { site, url } = req.query;
-  if (!site || !url) return res.json({ error: "Params missing" });
+  const { site, url } = req.query
+  if (!site || !url) {
+    return res.json({ price: null })
+  }
 
-  const price = await fetchPrice(site, url);
+  try {
+    const browser = await getBrowser()
+    const page = await browser.newPage()
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 })
+    await page.waitForSelector(priceSelectors[site], { timeout: 15000 })
 
-  if (!price) return res.json({ error: "Cannot fetch price" });
-  res.json({ price });
-});
+    const price = await page.$eval(
+      priceSelectors[site],
+      el => el.innerText.trim()
+    )
 
-app.listen(PORT, () => console.log(`Backend radi na portu ${PORT}`));
+    await page.close()
+    res.json({ price })
+  } catch (err) {
+    console.error("SCRAPE ERROR:", err.message)
+    res.json({ price: null })
+  }
+})
+
+app.listen(8080, () => console.log("Server running"))
