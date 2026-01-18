@@ -1,17 +1,14 @@
 import express from "express";
 import cors from "cors";
-import axios from "axios";
+import puppeteer from "puppeteer";
 
 const app = express();
 app.use(cors());
 
-// API key za ScrapingBee
-const SCRAPINGBEE_KEY = process.env.SCRAPINGBEE_KEY || "9IAJJ5OSSL12SZAI3NB4CIGBUH1B20SPWNYORIXJV3YQYXQ316OYWDITBWTEAORQTLRG8PF4CN2CRL49";
-
 // Selektori za cene
 const priceSelectors = {
   jankovic: ".product-price",
-  drmax: ".product-price-wrapper .price", // ispravljeni selektor za Drmax
+  drmax: ".price-box .price-final_price",
   benu: "span[data-mailkit-product-price]",
   galenpharm: ".product-price-new",
   dm: '[data-dmid="price-localized"]',
@@ -22,57 +19,84 @@ const priceSelectors = {
 const priceCache = {};
 const CACHE_TIME = 10 * 60 * 1000;
 
-// Middleware za API key auth
-const API_KEY = process.env.API_KEY || "12345abcdef";
-function authMiddleware(req, res, next) {
-  const key = req.headers["x-api-key"];
-  if (!key || key !== API_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
+let browserPromise = null;
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = puppeteer.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--single-process",
+        "--disable-gpu"
+      ]
+    });
+    console.log("Chromium launched successfully");
   }
-  next();
+  return browserPromise;
 }
 
-// API za cene
-app.get("/api/price", authMiddleware, async (req, res) => {
+// API endpoint za cene
+app.get("/api/price", async (req, res) => {
   const { site, url } = req.query;
-  if (!site || !url)
-    return res.status(400).json({ error: "Missing site or url" });
+  if (!site || !url) return res.status(400).json({ error: "Missing site or url" });
 
   const selector = priceSelectors[site.toLowerCase()];
-  if (!selector)
-    return res.status(400).json({ error: "Unsupported site" });
+  if (!selector) return res.status(400).json({ error: "Unsupported site" });
 
   const cacheKey = `${site}|${url}`;
   const now = Date.now();
+
   if (priceCache[cacheKey] && now - priceCache[cacheKey].time < CACHE_TIME) {
     return res.json({ price: priceCache[cacheKey].price });
   }
 
   try {
-    // ScrapingBee API poziv
-    const response = await axios.get("https://app.scrapingbee.com/api/v1/", {
-      params: {
-        api_key: SCRAPINGBEE_KEY,
-        url: url,
-        render_js: true,
-        extract_rules: JSON.stringify({ price: selector })
-      }
-    });
+    const browser = await getBrowser();
+    const page = await browser.newPage();
 
-    const price = response.data.price || "Cena nije dostupna";
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+    );
+
+    console.log("Navigating to URL:", url);
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+    console.log("Page loaded successfully");
+
+    let price = null;
+    try {
+      await page.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel);
+          return el && el.innerText.trim().length > 0;
+        },
+        { timeout: 30000 },
+        selector
+      );
+
+      price = await page.$eval(selector, (el) => el.innerText.trim());
+      console.log(`Price found for ${site}: ${price}`);
+    } catch (err) {
+      console.error(`Cena nije pronađena za ${site}:`, err.message);
+      price = "Cena nije dostupna";
+    }
+
+    await page.close();
     priceCache[cacheKey] = { price, time: now };
     res.json({ price });
   } catch (err) {
-    console.error("Greška u ScrapingBee API:", err.message);
+    console.error("Greška u Puppeteer-u:", err);
     res.status(500).json({ error: "Cannot fetch price" });
   }
 });
 
 // Root
 app.get("/", (req, res) => {
-  res.send(
-    "Herbameds Backend radi! /api/price?site=...&url=..."
-  );
+  res.send("Herbameds Backend radi! /api/price?site=...&url=...");
 });
 
 // Start server
