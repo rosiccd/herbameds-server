@@ -1,10 +1,11 @@
 import express from "express";
 import cors from "cors";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
 
 const app = express();
 app.use(cors());
 
+// Selektori za cene na različitim sajtovima
 const priceSelectors = {
   jankovic: ".product-price",
   drmax: ".price-box .price-final_price",
@@ -14,6 +15,7 @@ const priceSelectors = {
   lilly: ".price"
 };
 
+// Cache za cene (10 minuta)
 const priceCache = {};
 const CACHE_TIME = 10 * 60 * 1000;
 
@@ -22,24 +24,28 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: "/usr/bin/chromium-browser" // Render/Linux sistemski Chromium
     });
     console.log("Chromium launched successfully");
   }
   return browserPromise;
 }
 
+// API endpoint za dobijanje cene
 app.get("/api/price", async (req, res) => {
   const { site, url } = req.query;
-  if (!site || !url) return res.status(400).json({ error: "Missing site or url" });
+  if (!site || !url)
+    return res.status(400).json({ error: "Missing site or url" });
 
   const selector = priceSelectors[site.toLowerCase()];
-  if (!selector) return res.status(400).json({ error: "Unsupported site" });
+  if (!selector)
+    return res.status(400).json({ error: "Unsupported site" });
 
   const cacheKey = `${site}|${url}`;
   const now = Date.now();
 
-  if (priceCache[cacheKey] && (now - priceCache[cacheKey].time < CACHE_TIME)) {
+  if (priceCache[cacheKey] && now - priceCache[cacheKey].time < CACHE_TIME) {
     return res.json({ price: priceCache[cacheKey].price });
   }
 
@@ -52,13 +58,13 @@ app.get("/api/price", async (req, res) => {
     );
 
     console.log("Navigating to URL:", url);
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
     console.log("Page loaded successfully");
 
     let price = null;
     try {
       await page.waitForFunction(
-        sel => {
+        (sel) => {
           const el = document.querySelector(sel);
           return el && el.innerText.trim().length > 0;
         },
@@ -66,7 +72,7 @@ app.get("/api/price", async (req, res) => {
         selector
       );
 
-      price = await page.$eval(selector, el => el.innerText.trim());
+      price = await page.$eval(selector, (el) => el.innerText.trim());
       console.log(`Price found for ${site}: ${price}`);
     } catch (err) {
       console.error(`Cena nije pronađena za ${site}:`, err.message);
@@ -77,19 +83,23 @@ app.get("/api/price", async (req, res) => {
 
     priceCache[cacheKey] = { price, time: now };
     res.json({ price });
-
   } catch (err) {
     console.error("Greška u Puppeteer-u:", err);
     res.status(500).json({ error: "Cannot fetch price" });
   }
 });
 
+// Root endpoint
 app.get("/", (req, res) => {
-  res.send("Herbameds Backend radi! Koristi /api/price za cene.");
+  res.send(
+    "Herbameds Backend radi! Koristi /api/price?site=...&url=... za cene."
+  );
 });
 
+// Start servera
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
 
 
 
