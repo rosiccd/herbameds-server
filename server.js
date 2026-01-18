@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import chromium from "chrome-aws-lambda"; // cloud-friendly Puppeteer
+import puppeteer from "puppeteer";
 
 const app = express();
 app.use(cors());
@@ -15,19 +15,16 @@ const priceSelectors = {
 };
 
 const priceCache = {};
-const CACHE_TIME = 10 * 60 * 1000; // 10 minuta
+const CACHE_TIME = 10 * 60 * 1000;
 
 let browserPromise = null;
-
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = await chromium.puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath || '/usr/bin/chromium-browser',
-      headless: chromium.headless,
+    browserPromise = puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    console.log("Browser launched successfully");
+    console.log("Chromium launched successfully");
   }
   return browserPromise;
 }
@@ -42,9 +39,7 @@ app.get("/api/price", async (req, res) => {
   const cacheKey = `${site}|${url}`;
   const now = Date.now();
 
-  // Provera cache-a
   if (priceCache[cacheKey] && (now - priceCache[cacheKey].time < CACHE_TIME)) {
-    console.log(`Returning cached price for ${site}`);
     return res.json({ price: priceCache[cacheKey].price });
   }
 
@@ -61,10 +56,9 @@ app.get("/api/price", async (req, res) => {
     console.log("Page loaded successfully");
 
     let price = null;
-
     try {
       await page.waitForFunction(
-        (sel) => {
+        sel => {
           const el = document.querySelector(sel);
           return el && el.innerText.trim().length > 0;
         },
@@ -90,15 +84,12 @@ app.get("/api/price", async (req, res) => {
   }
 });
 
-// Root rutu za test
 app.get("/", (req, res) => {
   res.send("Herbameds Backend radi! Koristi /api/price za cene.");
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-
 
 
 
