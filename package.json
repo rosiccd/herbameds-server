@@ -1,15 +1,13 @@
 {
   "name": "herbameds-server",
   "version": "1.0.0",
-  "description": "Backend za Herbameds aplikaciju za fetch cena iz apoteka",
-  "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.19.2",
+    "cors": "^2.8.5",
     "puppeteer-core": "^21.7.0"
   }
 }
