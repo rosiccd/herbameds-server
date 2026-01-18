@@ -1,104 +1,103 @@
-import express from "express";
-import cors from "cors";
-import puppeteer from "puppeteer";
+require("dotenv").config();
+const express = require("express");
+const fetch = require("node-fetch");
+const cheerio = require("cheerio");
+const cors = require("cors");
 
 const app = express();
 app.use(cors());
+const PORT = process.env.PORT || 5000;
 
-// Selektori za cene
-const priceSelectors = {
-  jankovic: ".product-price",
-  drmax: ".price-box .price-final_price",
-  benu: "span[data-mailkit-product-price]",
-  galenpharm: ".product-price-new",
-  dm: '[data-dmid="price-localized"]',
-  lilly: ".price"
+// Scraper za Janković
+const fetchJankovic = async (url) => {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+    const html = await res.text();
+    const $ = cheerio.load(html);
+
+    // Primer: iz Apoteka Janković vidimo da cena stoji kao tekst pre "RSD"
+    const priceText = $("body")
+      .text()
+      .match(/([0-9]+[.,]?[0-9]*)\s*RSD/i)?.[0];
+
+    if (!priceText) return null;
+    return priceText;
+  } catch (err) {
+    console.error("Jankovic error:", err.message);
+    return null;
+  }
 };
 
-// Cache (10 minuta)
-const priceCache = {};
-const CACHE_TIME = 10 * 60 * 1000;
-
-let browserPromise = null;
-async function getBrowser() {
-  if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--single-process",
-        "--disable-gpu"
-      ]
+// Scraper za DrMax
+const fetchDrMax = async (url) => {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
     });
-    console.log("Chromium launched successfully");
-  }
-  return browserPromise;
-}
+    const html = await res.text();
+    const $ = cheerio.load(html);
 
-// API endpoint za cene
+    // Na Dr.Max sajtu cena zna biti u elementima sa klasom koja sadrži "price"
+    const priceText = $('[class*="price"]').first().text().trim();
+    if (!priceText) return null;
+    return priceText;
+  } catch (err) {
+    console.error("DrMax error:", err.message);
+    return null;
+  }
+};
+
+// Backend endpoint
 app.get("/api/price", async (req, res) => {
   const { site, url } = req.query;
-  if (!site || !url) return res.status(400).json({ error: "Missing site or url" });
 
-  const selector = priceSelectors[site.toLowerCase()];
-  if (!selector) return res.status(400).json({ error: "Unsupported site" });
-
-  const cacheKey = `${site}|${url}`;
-  const now = Date.now();
-
-  if (priceCache[cacheKey] && now - priceCache[cacheKey].time < CACHE_TIME) {
-    return res.json({ price: priceCache[cacheKey].price });
+  if (!site || !url) {
+    return res.json({ error: "Params missing" });
   }
 
   try {
-    const browser = await getBrowser();
-    const page = await browser.newPage();
-
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
-    );
-
-    console.log("Navigating to URL:", url);
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-    console.log("Page loaded successfully");
-
     let price = null;
-    try {
-      await page.waitForFunction(
-        (sel) => {
-          const el = document.querySelector(sel);
-          return el && el.innerText.trim().length > 0;
-        },
-        { timeout: 30000 },
-        selector
-      );
 
-      price = await page.$eval(selector, (el) => el.innerText.trim());
-      console.log(`Price found for ${site}: ${price}`);
-    } catch (err) {
-      console.error(`Cena nije pronađena za ${site}:`, err.message);
-      price = "Cena nije dostupna";
+    switch (site) {
+      case "jankovic":
+        price = await fetchJankovic(url);
+        break;
+      case "drmax":
+        price = await fetchDrMax(url);
+        break;
+
+      // Ostale apoteke dodaj ovako:
+      // case "benu":
+      //   price = await fetchBenu(url);
+      //   break;
+      // case "dm":
+      //   price = await fetchDm(url);
+      //   break;
+      // case "galenpharm":
+      //   price = await fetchGalenPharm(url);
+      //   break;
+      // case "lilly":
+      //   price = await fetchLilly(url);
+      //   break;
+
+      default:
+        return res.json({ error: "Unknown site" });
     }
 
-    await page.close();
-    priceCache[cacheKey] = { price, time: now };
+    // fallback kad scraper ne nadje cenu
+    if (!price) {
+      return res.json({ error: "Cannot fetch price" });
+    }
+
     res.json({ price });
   } catch (err) {
-    console.error("Greška u Puppeteer-u:", err);
-    res.status(500).json({ error: "Cannot fetch price" });
+    console.error("API error:", err.message);
+    res.json({ error: "Cannot fetch price" });
   }
 });
 
-// Root
-app.get("/", (req, res) => {
-  res.send("Herbameds Backend radi! /api/price?site=...&url=...");
-});
-
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`Backend radi na portu ${PORT}`)
+);
