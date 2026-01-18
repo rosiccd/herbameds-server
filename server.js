@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import chromium from "chrome-aws-lambda";  // cloud-friendly Puppeteer
+import chromium from "chrome-aws-lambda"; // cloud-friendly Puppeteer
 
 const app = express();
 app.use(cors());
@@ -18,14 +18,16 @@ const priceCache = {};
 const CACHE_TIME = 10 * 60 * 1000; // 10 minuta
 
 let browserPromise = null;
+
 async function getBrowser() {
   if (!browserPromise) {
     browserPromise = await chromium.puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath,
+      executablePath: await chromium.executablePath || '/usr/bin/chromium-browser',
       headless: chromium.headless,
     });
+    console.log("Browser launched successfully");
   }
   return browserPromise;
 }
@@ -40,8 +42,9 @@ app.get("/api/price", async (req, res) => {
   const cacheKey = `${site}|${url}`;
   const now = Date.now();
 
-  // cache
+  // Provera cache-a
   if (priceCache[cacheKey] && (now - priceCache[cacheKey].time < CACHE_TIME)) {
+    console.log(`Returning cached price for ${site}`);
     return res.json({ price: priceCache[cacheKey].price });
   }
 
@@ -53,23 +56,26 @@ app.get("/api/price", async (req, res) => {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
     );
 
-    // Cloud-friendly timeout
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    console.log("Navigating to URL:", url);
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    console.log("Page loaded successfully");
 
     let price = null;
+
     try {
       await page.waitForFunction(
         (sel) => {
           const el = document.querySelector(sel);
           return el && el.innerText.trim().length > 0;
         },
-        { timeout: 20000 },
+        { timeout: 30000 },
         selector
       );
 
       price = await page.$eval(selector, el => el.innerText.trim());
+      console.log(`Price found for ${site}: ${price}`);
     } catch (err) {
-      console.log(`Cena nije pronađena za ${site}:`, err.message);
+      console.error(`Cena nije pronađena za ${site}:`, err.message);
       price = "Cena nije dostupna";
     }
 
@@ -77,14 +83,22 @@ app.get("/api/price", async (req, res) => {
 
     priceCache[cacheKey] = { price, time: now };
     res.json({ price });
+
   } catch (err) {
     console.error("Greška u Puppeteer-u:", err);
     res.status(500).json({ error: "Cannot fetch price" });
   }
 });
 
+// Root rutu za test
+app.get("/", (req, res) => {
+  res.send("Herbameds Backend radi! Koristi /api/price za cene.");
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
 
 
 
