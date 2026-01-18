@@ -5,7 +5,7 @@ import puppeteer from "puppeteer";
 const app = express();
 app.use(cors());
 
-// Selektori za cene na različitim sajtovima
+// Selektori za cene
 const priceSelectors = {
   jankovic: ".product-price",
   drmax: ".price-box .price-final_price",
@@ -15,7 +15,7 @@ const priceSelectors = {
   lilly: ".price"
 };
 
-// Cache za cene (10 minuta)
+// Cache (10 minuta)
 const priceCache = {};
 const CACHE_TIME = 10 * 60 * 1000;
 
@@ -40,7 +40,7 @@ async function getBrowser() {
   return browserPromise;
 }
 
-// API endpoint za dobijanje cene
+// API za cene
 app.get("/api/price", async (req, res) => {
   const { site, url } = req.query;
   if (!site || !url)
@@ -97,13 +97,13 @@ app.get("/api/price", async (req, res) => {
   }
 });
 
-// Root endpoint
+// Root
 app.get("/", (req, res) => {
   res.send(
-    "Herbameds Backend radi! Koristi /api/price?site=...&url=... za cene."
+    "Herbameds Backend radi! /api/price?site=...&url=..."
   );
 });
 
-// Start servera
+// Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
