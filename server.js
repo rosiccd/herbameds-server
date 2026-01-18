@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer";
 
 const app = express();
 app.use(cors());
@@ -24,8 +24,7 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      executablePath: "/usr/bin/chromium-browser" // Render/Linux sistemski Chromium
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
     console.log("Chromium launched successfully");
   }
@@ -99,7 +98,6 @@ app.get("/", (req, res) => {
 // Start servera
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
 
 
 
